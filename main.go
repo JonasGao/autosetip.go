@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	openapi "github.com/alibabacloud-go/darabonba-openapi/client"
+	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	ecs20140526 "github.com/alibabacloud-go/ecs-20140526/v4/client"
-	util "github.com/alibabacloud-go/tea-utils/service"
+	util "github.com/alibabacloud-go/tea-utils/v2/service"
 	"github.com/alibabacloud-go/tea/tea"
 	"gopkg.in/yaml.v2"
 	"io"
@@ -13,11 +13,12 @@ import (
 )
 
 type AliyunTarget struct {
-	AccessKey       string `yaml:"access_key"`
-	SecretKey       string `yaml:"secret_key"`
-	Region          string `yaml:"region"`
-	Endpoint        string `yaml:"endpoint,omitempty"`
-	SecurityGroupId string `yaml:"security_group_id"`
+	AccessKey           string `yaml:"access_key"`
+	SecretKey           string `yaml:"secret_key"`
+	Region              string `yaml:"region"`
+	Endpoint            string `yaml:"endpoint,omitempty"`
+	SecurityGroupId     string `yaml:"security_group_id"`
+	SecurityGroupRuleId string `yaml:"security_group_rule_id"`
 }
 
 type Config struct {
@@ -29,6 +30,7 @@ func createClient(target AliyunTarget) (_result *ecs20140526.Client, _err error)
 	c := &openapi.Config{
 		AccessKeyId:     tea.String(target.AccessKey),
 		AccessKeySecret: tea.String(target.SecretKey),
+		RegionId:        tea.String(target.Region),
 	}
 	c.Endpoint = tea.String(target.Endpoint)
 	_result, _err = ecs20140526.NewClient(c)
@@ -41,14 +43,15 @@ func modifyIp(target AliyunTarget, ip string) error {
 		return err
 	}
 	req := &ecs20140526.ModifySecurityGroupRuleRequest{
-		RegionId:        tea.String(target.Region),
-		SecurityGroupId: tea.String(target.SecurityGroupId),
-		Policy:          tea.String("accept"),
-		Priority:        tea.String("100"),
-		IpProtocol:      tea.String("tcp"),
-		SourceCidrIp:    tea.String(ip),
-		PortRange:       tea.String("22"),
-		Description:     tea.String("Auto create by autosetip.go"),
+		RegionId:            tea.String(target.Region),
+		SecurityGroupId:     tea.String(target.SecurityGroupId),
+		SecurityGroupRuleId: tea.String(target.SecurityGroupRuleId),
+		Policy:              tea.String("accept"),
+		Priority:            tea.String("100"),
+		IpProtocol:          tea.String("tcp"),
+		SourceCidrIp:        tea.String(ip),
+		PortRange:           tea.String("22/22"),
+		Description:         tea.String("Auto create by autosetip.go"),
 	}
 	runtime := &util.RuntimeOptions{}
 	err = func() (_e error) {
@@ -62,7 +65,7 @@ func modifyIp(target AliyunTarget, ip string) error {
 		if err != nil {
 			return err
 		}
-
+		fmt.Printf("Success set ip for '%s'\n", target.SecurityGroupRuleId)
 		return nil
 	}()
 	return err
@@ -131,7 +134,7 @@ func main() {
 	for _, target := range config.Aliyun {
 		err = modifyIp(target, ip)
 		if err != nil {
-			fmt.Printf("Modify ip error: %v\n", err)
+			fmt.Printf("Modify '%s' ip error: %v\n", target.AccessKey, err)
 		}
 	}
 	fmt.Println("Done")
