@@ -119,6 +119,10 @@ func main() {
 		fmt.Printf("Read config file error: %v\n", err)
 		return
 	}
+	if config.Aliyun == nil {
+		fmt.Println("No aliyun target")
+		return
+	}
 	ip, err := fetchIp(config)
 	if err != nil {
 		fmt.Printf("Fetch ip error: %v\n", err)
