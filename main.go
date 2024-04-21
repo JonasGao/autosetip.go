@@ -123,10 +123,12 @@ func main() {
 	if err != nil {
 		fmt.Printf("Fetch ip error: %v\n", err)
 	}
+	fmt.Printf("Current ip: %s\n", ip)
 	for _, target := range config.Aliyun {
 		err = modifyIp(target, ip)
 		if err != nil {
 			fmt.Printf("Modify ip error: %v\n", err)
 		}
 	}
+	fmt.Println("Done")
 }
