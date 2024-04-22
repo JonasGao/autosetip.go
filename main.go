@@ -34,8 +34,8 @@ type AliyunClient struct {
 
 const descTemplate = "Auto create by autosetip.go. %s."
 
-func log(client AliyunClient, msg string, a ...any) {
-	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, fmt.Sprintf(msg, a))
+func log(client AliyunClient, msg string) {
+	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, msg)
 }
 
 func logErr(msg string, client AliyunClient, err error) {
