@@ -13,12 +13,11 @@ import (
 )
 
 type AliyunTarget struct {
-	AccessKey           string `yaml:"access_key"`
-	SecretKey           string `yaml:"secret_key"`
-	Region              string `yaml:"region"`
-	Endpoint            string `yaml:"endpoint,omitempty"`
-	SecurityGroupId     string `yaml:"security_group_id"`
-	SecurityGroupRuleId string `yaml:"security_group_rule_id"`
+	AccessKey       string `yaml:"access_key"`
+	SecretKey       string `yaml:"secret_key"`
+	Region          string `yaml:"region"`
+	Endpoint        string `yaml:"endpoint,omitempty"`
+	SecurityGroupId string `yaml:"security_group_id"`
 }
 
 type Config struct {
@@ -30,6 +29,16 @@ type AliyunClient struct {
 	client  *ecs20140526.Client
 	target  AliyunTarget
 	options *util.RuntimeOptions
+}
+
+const desc = "Auto create by autosetip.go"
+
+func log(msg string, client AliyunClient) {
+	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, msg)
+}
+
+func logErr(msg string, client AliyunClient, err error) {
+	fmt.Printf("[%s] %s: %v\n", client.target.SecurityGroupId, msg, err)
 }
 
 func createClient(target AliyunTarget) (client AliyunClient, err error) {
@@ -54,7 +63,7 @@ func (aliyunClient AliyunClient) addIp(ip string) error {
 		IpProtocol:   tea.String("tcp"),
 		SourceCidrIp: tea.String(ip),
 		PortRange:    tea.String("22/22"),
-		Description:  tea.String("Auto create by autosetip.go"),
+		Description:  tea.String(desc),
 	}
 	req := &ecs20140526.AuthorizeSecurityGroupRequest{
 		RegionId:    tea.String(aliyunClient.target.Region),
@@ -66,31 +75,29 @@ func (aliyunClient AliyunClient) addIp(ip string) error {
 				_e = r
 			}
 		}()
-		// 复制代码运行请自行打印 API 的返回值
 		_, err = aliyunClient.client.AuthorizeSecurityGroupWithOptions(req, aliyunClient.options)
 		if err != nil {
 			return err
 		}
-
+		log("Success add ip rule", aliyunClient)
 		return nil
 	}()
 	return err
 }
 
-func (aliyunClient AliyunClient) modifyIp(ip string) error {
+func (aliyunClient AliyunClient) modifyIp(id *string, ip string) error {
 	var err error
 	req := &ecs20140526.ModifySecurityGroupRuleRequest{
 		RegionId:            tea.String(aliyunClient.target.Region),
 		SecurityGroupId:     tea.String(aliyunClient.target.SecurityGroupId),
-		SecurityGroupRuleId: tea.String(aliyunClient.target.SecurityGroupRuleId),
+		SecurityGroupRuleId: id,
 		Policy:              tea.String("accept"),
 		Priority:            tea.String("100"),
 		IpProtocol:          tea.String("tcp"),
 		SourceCidrIp:        tea.String(ip),
 		PortRange:           tea.String("22/22"),
-		Description:         tea.String("Auto create by autosetip.go"),
+		Description:         tea.String(desc),
 	}
-	runtime := &util.RuntimeOptions{}
 	err = func() (_e error) {
 		defer func() {
 			if r := tea.Recover(recover()); r != nil {
@@ -98,14 +105,55 @@ func (aliyunClient AliyunClient) modifyIp(ip string) error {
 			}
 		}()
 		// 复制代码运行请自行打印 API 的返回值
-		_, err = aliyunClient.client.ModifySecurityGroupRuleWithOptions(req, runtime)
+		_, err = aliyunClient.client.ModifySecurityGroupRuleWithOptions(req, aliyunClient.options)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Success set ip for '%s'\n", aliyunClient.target.SecurityGroupRuleId)
+		log("Success set ip", aliyunClient)
 		return nil
 	}()
 	return err
+}
+
+func (aliyunClient AliyunClient) queryRuleId() (*string, error) {
+	req := &ecs20140526.DescribeSecurityGroupAttributeRequest{
+		RegionId:        tea.String(aliyunClient.target.Region),
+		SecurityGroupId: tea.String(aliyunClient.target.SecurityGroupId),
+	}
+	res, err := func() (res *ecs20140526.DescribeSecurityGroupAttributeResponse, err error) {
+		defer func() {
+			if r := tea.Recover(recover()); r != nil {
+				err = r
+			}
+		}()
+		res, err = aliyunClient.client.DescribeSecurityGroupAttributeWithOptions(req, aliyunClient.options)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+	for _, permission := range res.Body.Permissions.Permission {
+		if tea.StringValue(permission.Description) == desc {
+			return permission.SecurityGroupRuleId, nil
+		}
+	}
+	return nil, nil
+}
+
+func setIp(client AliyunClient, ip string) error {
+	id, err := client.queryRuleId()
+	if err != nil {
+		return err
+	}
+	if id == nil {
+		log("Not found rule id, will add new ip rule.", client)
+		return client.addIp(ip)
+	}
+	log("Found rule, modify ip.", client)
+	return client.modifyIp(id, ip)
 }
 
 func readConfig() (Config, error) {
@@ -171,12 +219,12 @@ func main() {
 	for _, target := range config.Aliyun {
 		client, err := createClient(target)
 		if err != nil {
-			fmt.Printf("Create '%s' client error: %v\n", target.AccessKey, err)
+			logErr("Create client error", client, err)
 			return
 		}
-		err = client.modifyIp(ip)
+		err = setIp(client, ip)
 		if err != nil {
-			fmt.Printf("Modify '%s' ip error: %v\n", target.AccessKey, err)
+			logErr("Modify ip error", client, err)
 			return
 		}
 	}
