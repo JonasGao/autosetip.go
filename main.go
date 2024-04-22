@@ -13,6 +13,7 @@ import (
 )
 
 type AliyunTarget struct {
+	Name            string `yaml:"name"`
 	AccessKey       string `yaml:"access_key"`
 	SecretKey       string `yaml:"secret_key"`
 	Region          string `yaml:"region"`
@@ -31,10 +32,10 @@ type AliyunClient struct {
 	options *util.RuntimeOptions
 }
 
-const desc = "Auto create by autosetip.go"
+const descTemplate = "Auto create by autosetip.go. %s."
 
-func log(msg string, client AliyunClient) {
-	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, msg)
+func log(client AliyunClient, msg string, a ...any) {
+	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, fmt.Sprintf(msg, a))
 }
 
 func logErr(msg string, client AliyunClient, err error) {
@@ -55,7 +56,7 @@ func createClient(target AliyunTarget) (client AliyunClient, err error) {
 	return AliyunClient{target: target, client: result, options: &util.RuntimeOptions{}}, nil
 }
 
-func (aliyunClient AliyunClient) addIp(ip string) error {
+func (aliyunClient AliyunClient) addIp(ip string, desc string) error {
 	var err error
 	permissions := &ecs20140526.AuthorizeSecurityGroupRequestPermissions{
 		Policy:       tea.String("accept"),
@@ -66,8 +67,9 @@ func (aliyunClient AliyunClient) addIp(ip string) error {
 		Description:  tea.String(desc),
 	}
 	req := &ecs20140526.AuthorizeSecurityGroupRequest{
-		RegionId:    tea.String(aliyunClient.target.Region),
-		Permissions: []*ecs20140526.AuthorizeSecurityGroupRequestPermissions{permissions},
+		RegionId:        tea.String(aliyunClient.target.Region),
+		SecurityGroupId: tea.String(aliyunClient.target.SecurityGroupId),
+		Permissions:     []*ecs20140526.AuthorizeSecurityGroupRequestPermissions{permissions},
 	}
 	err = func() (_e error) {
 		defer func() {
@@ -79,7 +81,7 @@ func (aliyunClient AliyunClient) addIp(ip string) error {
 		if err != nil {
 			return err
 		}
-		log("Success add ip rule", aliyunClient)
+		log(aliyunClient, "Success add ip rule")
 		return nil
 	}()
 	return err
@@ -96,7 +98,6 @@ func (aliyunClient AliyunClient) modifyIp(id *string, ip string) error {
 		IpProtocol:          tea.String("tcp"),
 		SourceCidrIp:        tea.String(ip),
 		PortRange:           tea.String("22/22"),
-		Description:         tea.String(desc),
 	}
 	err = func() (_e error) {
 		defer func() {
@@ -109,13 +110,13 @@ func (aliyunClient AliyunClient) modifyIp(id *string, ip string) error {
 		if err != nil {
 			return err
 		}
-		log("Success set ip", aliyunClient)
+		log(aliyunClient, "Success set ip")
 		return nil
 	}()
 	return err
 }
 
-func (aliyunClient AliyunClient) queryRuleId() (*string, error) {
+func (aliyunClient AliyunClient) queryRuleId(desc string) (*string, error) {
 	req := &ecs20140526.DescribeSecurityGroupAttributeRequest{
 		RegionId:        tea.String(aliyunClient.target.Region),
 		SecurityGroupId: tea.String(aliyunClient.target.SecurityGroupId),
@@ -144,15 +145,16 @@ func (aliyunClient AliyunClient) queryRuleId() (*string, error) {
 }
 
 func setIp(client AliyunClient, ip string) error {
-	id, err := client.queryRuleId()
+	desc := fmt.Sprintf(descTemplate, client.target.Name)
+	id, err := client.queryRuleId(desc)
 	if err != nil {
 		return err
 	}
 	if id == nil {
-		log("Not found rule id, will add new ip rule.", client)
-		return client.addIp(ip)
+		log(client, "Not found rule id, will add new ip rule.")
+		return client.addIp(ip, desc)
 	}
-	log("Found rule, modify ip.", client)
+	log(client, "Found rule, modify ip.")
 	return client.modifyIp(id, ip)
 }
 
