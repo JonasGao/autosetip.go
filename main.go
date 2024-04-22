@@ -32,7 +32,7 @@ type AliyunClient struct {
 	options *util.RuntimeOptions
 }
 
-const descTemplate = "Auto create by autosetip.go. %s."
+const descTemplate = "Auto create by autosetip.go. For %s."
 
 func log(client AliyunClient, msg string) {
 	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, msg)
