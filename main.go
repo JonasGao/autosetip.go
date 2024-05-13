@@ -22,7 +22,7 @@ type AliyunTarget struct {
 }
 
 type Config struct {
-	IpApiURL string         `yaml:"ip_api_url,omitempty"`
+	IpApiURL []string       `yaml:"ip_api_url,omitempty"`
 	Aliyun   []AliyunTarget `yaml:"aliyun"`
 }
 
@@ -160,7 +160,7 @@ func setIp(client AliyunClient, ip string) error {
 
 func readConfig() (Config, error) {
 	var config Config
-	const defaultApi = "https://ips.im/api"
+	defaultApi := []string{"https://ips.im/api", "https://api.ipify.org"}
 	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
 		config.IpApiURL = defaultApi
 		return config, nil
@@ -173,7 +173,7 @@ func readConfig() (Config, error) {
 	if err != nil {
 		return config, err
 	}
-	if config.IpApiURL == "" {
+	if len(config.IpApiURL) == 0 {
 		config.IpApiURL = defaultApi
 	}
 	for _, target := range config.Aliyun {
@@ -184,9 +184,9 @@ func readConfig() (Config, error) {
 	return config, nil
 }
 
-func fetchIp(config Config) (string, error) {
+func fetchIp(ipApi string) (string, error) {
 	var ip string
-	resp, err := http.Get(config.IpApiURL)
+	resp, err := http.Get(ipApi)
 	if err != nil {
 		return ip, err
 	}
@@ -213,9 +213,17 @@ func main() {
 		fmt.Println("No aliyun target")
 		return
 	}
-	ip, err := fetchIp(config)
-	if err != nil {
-		fmt.Printf("Fetch ip error: %v\n", err)
+	var ip string
+	for _, ipApi := range config.IpApiURL {
+		fmt.Printf("Fetching ip using: %s\n", ipApi)
+		ip, err = fetchIp(ipApi)
+		if err != nil {
+			fmt.Printf("Fetch ip error: %v\n", err)
+		}
+	}
+	if ip == "" {
+		fmt.Println("No ip found")
+		return
 	}
 	fmt.Printf("Current ip: %s\n", ip)
 	for _, target := range config.Aliyun {
