@@ -1,0 +1,15 @@
+需要阿里云相应的权限
+{
+    "Version": "1",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecs:DescribeSecurityGroupAttribute",
+                "ecs:AuthorizeSecurityGroup",
+                "ecs:ModifySecurityGroupRule"
+            ],
+            "Resource": "acs:ecs:*:123123:securitygroup/xxxxxxxx"
+        }
+    ]
+}
