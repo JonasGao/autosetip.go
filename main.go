@@ -17,12 +17,8 @@ type Loggable interface {
 	lk() string
 }
 
-type Target struct {
-	Key string `yaml:"key"`
-}
-
 type EcsTarget struct {
-	Target
+	Key             string `yaml:"key"`
 	Region          string `yaml:"region"`
 	AccessKey       string `yaml:"access_key"`
 	SecretKey       string `yaml:"secret_key"`
@@ -31,7 +27,7 @@ type EcsTarget struct {
 }
 
 type MongoTarget struct {
-	Target
+	Key        string `yaml:"key"`
 	AccessKey  string `yaml:"access_key"`
 	SecretKey  string `yaml:"secret_key"`
 	InstanceId string `yaml:"instance_id"`
@@ -63,11 +59,11 @@ type AliyunMongoClient struct {
 }
 
 func (client AliyunEcsClient) lk() string {
-	return client.ecs.Target.Key
+	return "ecs:" + client.target.Name + ":" + client.ecs.SecurityGroupId
 }
 
 func (client AliyunMongoClient) lk() string {
-	return client.mongo.Target.Key
+	return "mongo:" + client.target.Name + ":" + client.mongo.InstanceId
 }
 
 func (client AliyunMongoClient) queryRuleId() (*string, error) {
