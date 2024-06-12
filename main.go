@@ -110,6 +110,7 @@ func (client AliyunMongoClient) modifyIp(ip string) error {
 		if err != nil {
 			return nil, err
 		}
+		log(client, "Success cover ip")
 		return res, nil
 	}()
 	return err
