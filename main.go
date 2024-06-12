@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
+	dds20151201 "github.com/alibabacloud-go/dds-20151201/v8/client"
 	ecs20140526 "github.com/alibabacloud-go/ecs-20140526/v4/client"
 	util "github.com/alibabacloud-go/tea-utils/v2/service"
 	"github.com/alibabacloud-go/tea/tea"
@@ -12,13 +13,34 @@ import (
 	"os"
 )
 
-type AliyunTarget struct {
-	Name            string `yaml:"name"`
+type Loggable interface {
+	lk() string
+}
+
+type Target struct {
+	Key string `yaml:"key"`
+}
+
+type EcsTarget struct {
+	Target
+	Region          string `yaml:"region"`
 	AccessKey       string `yaml:"access_key"`
 	SecretKey       string `yaml:"secret_key"`
-	Region          string `yaml:"region"`
 	Endpoint        string `yaml:"endpoint,omitempty"`
 	SecurityGroupId string `yaml:"security_group_id"`
+}
+
+type MongoTarget struct {
+	Target
+	AccessKey  string `yaml:"access_key"`
+	SecretKey  string `yaml:"secret_key"`
+	InstanceId string `yaml:"instance_id"`
+}
+
+type AliyunTarget struct {
+	Name  string        `yaml:"name"`
+	Ecs   []EcsTarget   `yaml:"ecs"`
+	Mongo []MongoTarget `yaml:"mongo"`
 }
 
 type Config struct {
@@ -26,37 +48,102 @@ type Config struct {
 	Aliyun   []AliyunTarget `yaml:"aliyun"`
 }
 
-type AliyunClient struct {
+type AliyunEcsClient struct {
 	client  *ecs20140526.Client
 	target  AliyunTarget
+	ecs     EcsTarget
 	options *util.RuntimeOptions
+}
+
+type AliyunMongoClient struct {
+	client  *dds20151201.Client
+	target  AliyunTarget
+	mongo   MongoTarget
+	options *util.RuntimeOptions
+}
+
+func (client AliyunEcsClient) lk() string {
+	return client.ecs.Target.Key
+}
+
+func (client AliyunMongoClient) lk() string {
+	return client.mongo.Target.Key
+}
+
+func (client AliyunMongoClient) queryRuleId() (*string, error) {
+	describeSecurityIpsRequest := &dds20151201.DescribeSecurityIpsRequest{
+		DBInstanceId: tea.String(client.mongo.InstanceId),
+	}
+	res, err := func() (res *dds20151201.DescribeSecurityIpsResponse, err error) {
+		defer func() {
+			if r := tea.Recover(recover()); r != nil {
+				err = r
+			}
+		}()
+		res, err = client.client.DescribeSecurityIpsWithOptions(describeSecurityIpsRequest, client.options)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+	for _, group := range res.Body.SecurityIpGroups.SecurityIpGroup {
+		if tea.StringValue(group.SecurityIpGroupName) == client.mongo.Key {
+			return group.SecurityIpList, nil
+		}
+	}
+	return nil, nil
+}
+
+func (client AliyunMongoClient) modifyIp(ip string) error {
+	modifySecurityIpsRequest := &dds20151201.ModifySecurityIpsRequest{
+		DBInstanceId:        tea.String(client.mongo.InstanceId),
+		SecurityIps:         tea.String(ip),
+		ModifyMode:          tea.String("Cover"),
+		SecurityIpGroupName: tea.String(client.mongo.Key),
+	}
+	_, err := func() (res *dds20151201.ModifySecurityIpsResponse, err error) {
+		defer func() {
+			if r := tea.Recover(recover()); r != nil {
+				err = r
+			}
+		}()
+		res, err = client.client.ModifySecurityIpsWithOptions(modifySecurityIpsRequest, client.options)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}()
+	return err
 }
 
 const descTemplate = "Auto create by autosetip.go. For %s."
 
-func log(client AliyunClient, msg string) {
-	fmt.Printf("[%s] %s\n", client.target.SecurityGroupId, msg)
+func log(target Loggable, msg string) {
+	fmt.Printf("[%s] %s\n", target.lk(), msg)
 }
 
-func logErr(msg string, client AliyunClient, err error) {
-	fmt.Printf("[%s] %s: %v\n", client.target.SecurityGroupId, msg, err)
+func logErr(msg string, target Loggable, err error) {
+	fmt.Printf("[%s] %s: %v\n", target.lk(), msg, err)
 }
 
-func createClient(target AliyunTarget) (client AliyunClient, err error) {
+func createEcsClient(target AliyunTarget, ecsTarget EcsTarget) (client AliyunEcsClient, err error) {
 	c := &openapi.Config{
-		AccessKeyId:     tea.String(target.AccessKey),
-		AccessKeySecret: tea.String(target.SecretKey),
-		RegionId:        tea.String(target.Region),
+		AccessKeyId:     tea.String(ecsTarget.AccessKey),
+		AccessKeySecret: tea.String(ecsTarget.SecretKey),
+		RegionId:        tea.String(ecsTarget.Region),
 	}
-	c.Endpoint = tea.String(target.Endpoint)
+	c.Endpoint = tea.String(ecsTarget.Endpoint)
 	result, err := ecs20140526.NewClient(c)
 	if err != nil {
 		return client, err
 	}
-	return AliyunClient{target: target, client: result, options: &util.RuntimeOptions{}}, nil
+	return AliyunEcsClient{target: target, client: result, ecs: ecsTarget, options: &util.RuntimeOptions{}}, nil
 }
 
-func (aliyunClient AliyunClient) addIp(ip string, desc string) error {
+func (client AliyunEcsClient) addIp(ip string, desc string) error {
 	var err error
 	permissions := &ecs20140526.AuthorizeSecurityGroupRequestPermissions{
 		Policy:       tea.String("accept"),
@@ -67,8 +154,8 @@ func (aliyunClient AliyunClient) addIp(ip string, desc string) error {
 		Description:  tea.String(desc),
 	}
 	req := &ecs20140526.AuthorizeSecurityGroupRequest{
-		RegionId:        tea.String(aliyunClient.target.Region),
-		SecurityGroupId: tea.String(aliyunClient.target.SecurityGroupId),
+		RegionId:        tea.String(client.ecs.Region),
+		SecurityGroupId: tea.String(client.ecs.SecurityGroupId),
 		Permissions:     []*ecs20140526.AuthorizeSecurityGroupRequestPermissions{permissions},
 	}
 	err = func() (_e error) {
@@ -77,21 +164,21 @@ func (aliyunClient AliyunClient) addIp(ip string, desc string) error {
 				_e = r
 			}
 		}()
-		_, err = aliyunClient.client.AuthorizeSecurityGroupWithOptions(req, aliyunClient.options)
+		_, err = client.client.AuthorizeSecurityGroupWithOptions(req, client.options)
 		if err != nil {
 			return err
 		}
-		log(aliyunClient, "Success add ip rule")
+		log(client, "Success add ip rule")
 		return nil
 	}()
 	return err
 }
 
-func (aliyunClient AliyunClient) modifyIp(id *string, ip string) error {
+func (client AliyunEcsClient) modifyIp(id *string, ip string) error {
 	var err error
 	req := &ecs20140526.ModifySecurityGroupRuleRequest{
-		RegionId:            tea.String(aliyunClient.target.Region),
-		SecurityGroupId:     tea.String(aliyunClient.target.SecurityGroupId),
+		RegionId:            tea.String(client.ecs.Region),
+		SecurityGroupId:     tea.String(client.ecs.SecurityGroupId),
 		SecurityGroupRuleId: id,
 		Policy:              tea.String("accept"),
 		Priority:            tea.String("100"),
@@ -106,20 +193,20 @@ func (aliyunClient AliyunClient) modifyIp(id *string, ip string) error {
 			}
 		}()
 		// 复制代码运行请自行打印 API 的返回值
-		_, err = aliyunClient.client.ModifySecurityGroupRuleWithOptions(req, aliyunClient.options)
+		_, err = client.client.ModifySecurityGroupRuleWithOptions(req, client.options)
 		if err != nil {
 			return err
 		}
-		log(aliyunClient, "Success set ip")
+		log(client, "Success set ip")
 		return nil
 	}()
 	return err
 }
 
-func (aliyunClient AliyunClient) queryRuleId(desc string) (*string, error) {
+func (client AliyunEcsClient) queryRuleId(desc string) (*string, error) {
 	req := &ecs20140526.DescribeSecurityGroupAttributeRequest{
-		RegionId:        tea.String(aliyunClient.target.Region),
-		SecurityGroupId: tea.String(aliyunClient.target.SecurityGroupId),
+		RegionId:        tea.String(client.ecs.Region),
+		SecurityGroupId: tea.String(client.ecs.SecurityGroupId),
 	}
 	res, err := func() (res *ecs20140526.DescribeSecurityGroupAttributeResponse, err error) {
 		defer func() {
@@ -127,7 +214,7 @@ func (aliyunClient AliyunClient) queryRuleId(desc string) (*string, error) {
 				err = r
 			}
 		}()
-		res, err = aliyunClient.client.DescribeSecurityGroupAttributeWithOptions(req, aliyunClient.options)
+		res, err = client.client.DescribeSecurityGroupAttributeWithOptions(req, client.options)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +231,7 @@ func (aliyunClient AliyunClient) queryRuleId(desc string) (*string, error) {
 	return nil, nil
 }
 
-func setIp(client AliyunClient, ip string) error {
+func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
 	desc := fmt.Sprintf(descTemplate, client.target.Name)
 	id, err := client.queryRuleId(desc)
 	if err != nil {
@@ -177,8 +264,10 @@ func readConfig() (Config, error) {
 		config.IpApiURL = defaultApi
 	}
 	for _, target := range config.Aliyun {
-		if target.Endpoint == "" {
-			target.Endpoint = "ecs" + target.Region + ".aliyuncs.com"
+		for _, ecs := range target.Ecs {
+			if ecs.Endpoint == "" {
+				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
+			}
 		}
 	}
 	return config, nil
@@ -209,11 +298,79 @@ func main() {
 		fmt.Printf("Read config file error: %v\n", err)
 		return
 	}
-	if config.Aliyun == nil {
+	if isEmpty(config.Aliyun) {
 		fmt.Println("No aliyun target")
 		return
 	}
+	ip, done := tryFetchIp(config)
+	if done {
+		return
+	}
+	fmt.Printf("Current ip: %s\n", ip)
+	for _, target := range config.Aliyun {
+		if !setupEcsSecurity(target, ip) {
+			return
+		}
+		if !setupMongoSecurity(target, ip) {
+			return
+		}
+	}
+	fmt.Println("Done")
+}
+
+func setupMongoSecurity(aliyun AliyunTarget, ip string) bool {
+	for _, target := range aliyun.Mongo {
+		client, err := createMongoClient(aliyun, target)
+		if err != nil {
+			logErr("Create client error", client, err)
+			return false
+		}
+		err = setMongoSecurityIp(client, ip)
+		if err != nil {
+			logErr("Modify ip error", client, err)
+			return false
+		}
+	}
+	return true
+}
+
+func setMongoSecurityIp(client AliyunMongoClient, ip string) error {
+	return client.modifyIp(ip)
+}
+
+func createMongoClient(aliyun AliyunTarget, target MongoTarget) (client AliyunMongoClient, err error) {
+	config := &openapi.Config{
+		AccessKeyId:     tea.String(target.AccessKey),
+		AccessKeySecret: tea.String(target.SecretKey),
+	}
+	config.Endpoint = tea.String("mongodb.aliyuncs.com")
+	var c *dds20151201.Client
+	c, err = dds20151201.NewClient(config)
+	if err != nil {
+		return client, err
+	}
+	return AliyunMongoClient{target: aliyun, client: c, mongo: target, options: &util.RuntimeOptions{}}, nil
+}
+
+func setupEcsSecurity(aliyun AliyunTarget, ip string) bool {
+	for _, target := range aliyun.Ecs {
+		client, err := createEcsClient(aliyun, target)
+		if err != nil {
+			logErr("Create client error", client, err)
+			return false
+		}
+		err = setEcsSecurityIp(client, ip)
+		if err != nil {
+			logErr("Modify ip error", client, err)
+			return false
+		}
+	}
+	return true
+}
+
+func tryFetchIp(config Config) (string, bool) {
 	var ip string
+	var err error
 	for _, ipApi := range config.IpApiURL {
 		fmt.Printf("Fetching ip using: %s\n", ipApi)
 		ip, err = fetchIp(ipApi)
@@ -223,20 +380,14 @@ func main() {
 	}
 	if ip == "" {
 		fmt.Println("No ip found")
-		return
+		return "", true
 	}
-	fmt.Printf("Current ip: %s\n", ip)
-	for _, target := range config.Aliyun {
-		client, err := createClient(target)
-		if err != nil {
-			logErr("Create client error", client, err)
-			return
-		}
-		err = setIp(client, ip)
-		if err != nil {
-			logErr("Modify ip error", client, err)
-			return
-		}
+	return ip, false
+}
+
+func isEmpty(aliyun []AliyunTarget) bool {
+	if len(aliyun) == 0 {
+		return true
 	}
-	fmt.Println("Done")
+	return false
 }
