@@ -228,7 +228,7 @@ func (client AliyunEcsClient) queryRuleId(desc string) (*string, error) {
 }
 
 func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
-	desc := fmt.Sprintf(descTemplate, client.target.Name)
+	desc := fmt.Sprintf(descTemplate, client.ecs.Key)
 	id, err := client.queryRuleId(desc)
 	if err != nil {
 		return err
