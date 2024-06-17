@@ -1,4 +1,4 @@
-package main
+package autosetip
 
 import (
 	"fmt"
@@ -7,10 +7,8 @@ import (
 	ecs20140526 "github.com/alibabacloud-go/ecs-20140526/v4/client"
 	util "github.com/alibabacloud-go/tea-utils/v2/service"
 	"github.com/alibabacloud-go/tea/tea"
-	"gopkg.in/yaml.v2"
 	"io"
 	"net/http"
-	"os"
 )
 
 type Loggable interface {
@@ -242,34 +240,6 @@ func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
 	return client.modifyIp(id, ip)
 }
 
-func readConfig() (Config, error) {
-	var config Config
-	defaultApi := []string{"https://ips.im/api", "https://api.ipify.org"}
-	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
-		config.IpApiURL = defaultApi
-		return config, nil
-	}
-	yamlData, err := os.ReadFile("config.yaml")
-	if err != nil {
-		return config, err
-	}
-	err = yaml.Unmarshal(yamlData, &config)
-	if err != nil {
-		return config, err
-	}
-	if len(config.IpApiURL) == 0 {
-		config.IpApiURL = defaultApi
-	}
-	for _, target := range config.Aliyun {
-		for _, ecs := range target.Ecs {
-			if ecs.Endpoint == "" {
-				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
-			}
-		}
-	}
-	return config, nil
-}
-
 func fetchIp(ipApi string) (string, error) {
 	var ip string
 	resp, err := http.Get(ipApi)
@@ -289,12 +259,7 @@ func fetchIp(ipApi string) (string, error) {
 	return string(body), nil
 }
 
-func main() {
-	config, err := readConfig()
-	if err != nil {
-		fmt.Printf("Read config file error: %v\n", err)
-		return
-	}
+func Autosetip(config Config) {
 	if isEmpty(config.Aliyun) {
 		fmt.Println("No aliyun target")
 		return

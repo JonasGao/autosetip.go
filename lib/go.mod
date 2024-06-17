@@ -8,7 +8,6 @@ require (
 	github.com/alibabacloud-go/ecs-20140526/v4 v4.1.1
 	github.com/alibabacloud-go/tea v1.2.2
 	github.com/alibabacloud-go/tea-utils/v2 v2.0.5
-	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
