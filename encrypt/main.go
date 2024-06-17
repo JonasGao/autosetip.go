@@ -13,12 +13,6 @@ func padding(plaintext []byte, blockSize int) []byte {
 	return append(plaintext, text...)
 }
 
-func margin(origData []byte) []byte {
-	length := len(origData)
-	paddingLen := int(origData[length-1])
-	return origData[:(length - paddingLen)]
-}
-
 func aesEncrypt(data, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -30,19 +24,6 @@ func aesEncrypt(data, key []byte) ([]byte, error) {
 	encrypted := make([]byte, len(data))
 	blockMode.CryptBlocks(encrypted, data)
 	return encrypted, nil
-}
-
-func aesDecrypt(data, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	blockSize := block.BlockSize()
-	blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])
-	origData := make([]byte, len(data))
-	blockMode.CryptBlocks(origData, data)
-	origData = margin(origData)
-	return origData, nil
 }
 
 func getConfigPath() string {
@@ -60,12 +41,20 @@ func getPass() string {
 }
 
 func main() {
-	//file, err := os.ReadFile(getConfigPath())
-	//if err != nil {
-	//	panic(err)
-	//}
+	file, err := os.ReadFile(getConfigPath())
+	if err != nil {
+		panic(err)
+	}
 	pass := getPass()
 	if pass == "" {
 		panic("pass is empty")
+	}
+	encrypt, err := aesEncrypt(file, []byte(pass))
+	if err != nil {
+		panic(err)
+	}
+	err = os.WriteFile("config.yaml.enc", encrypt, 0644)
+	if err != nil {
+		panic(err)
 	}
 }
