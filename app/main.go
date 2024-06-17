@@ -7,6 +7,13 @@ import (
 	"os"
 )
 
+func getConfigPath() string {
+	if len(os.Args) == 0 {
+		return "config.yaml"
+	}
+	return os.Args[0]
+}
+
 func readConfig() (Config, error) {
 	var config Config
 	defaultApi := []string{"https://ips.im/api", "https://api.ipify.org"}
@@ -14,7 +21,7 @@ func readConfig() (Config, error) {
 		config.IpApiURL = defaultApi
 		return config, nil
 	}
-	yamlData, err := os.ReadFile("config.yaml")
+	yamlData, err := os.ReadFile(getConfigPath())
 	if err != nil {
 		return config, err
 	}
