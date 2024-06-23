@@ -38,17 +38,6 @@ func readConfig(content []byte) (Config, error) {
 	if err != nil {
 		return config, err
 	}
-	if len(config.IpApiURL) == 0 {
-		defaultApi := []string{"https://ips.im/api", "https://api.ipify.org"}
-		config.IpApiURL = defaultApi
-	}
-	for _, target := range config.Aliyun {
-		for _, ecs := range target.Ecs {
-			if ecs.Endpoint == "" {
-				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
-			}
-		}
-	}
 	return config, nil
 }
 

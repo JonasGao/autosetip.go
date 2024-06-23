@@ -16,7 +16,7 @@ type Loggable interface {
 }
 
 type EcsTarget struct {
-	Key             string `yaml:"key"`
+	Key             string `yaml:"key,omitempty"`
 	Region          string `yaml:"region"`
 	AccessKey       string `yaml:"access_key"`
 	SecretKey       string `yaml:"secret_key"`
@@ -39,6 +39,7 @@ type AliyunTarget struct {
 
 type Config struct {
 	IpApiURL []string       `yaml:"ip_api_url,omitempty"`
+	Key      string         `yaml:"key,omitempty"`
 	Aliyun   []AliyunTarget `yaml:"aliyun"`
 }
 
@@ -112,6 +113,38 @@ func (client AliyunMongoClient) modifyIp(ip string) error {
 		return res, nil
 	}()
 	return err
+}
+
+func (config Config) init() error {
+	if len(config.IpApiURL) == 0 {
+		config.IpApiURL = []string{"https://ips.im/api", "https://api.ipify.org"}
+	}
+	globalKey := config.Key
+	hasGlobalKey := len(globalKey) != 0
+	for _, target := range config.Aliyun {
+		for _, ecs := range target.Ecs {
+			if ecs.Endpoint == "" {
+				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
+			}
+			if ecs.Key == "" {
+				if hasGlobalKey {
+					ecs.Key = globalKey
+				} else {
+					return fmt.Errorf("ecs key is empty")
+				}
+			}
+		}
+		for _, mongo := range target.Mongo {
+			if mongo.Key == "" {
+				if hasGlobalKey {
+					mongo.Key = globalKey
+				} else {
+					return fmt.Errorf("mongo key is empty")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 const descTemplate = "Auto create by autosetip.go. For %s."
@@ -260,6 +293,11 @@ func fetchIp(ipApi string) (string, error) {
 }
 
 func Autosetip(config Config) {
+	err := config.init()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	if isEmpty(config.Aliyun) {
 		fmt.Println("No aliyun target")
 		return

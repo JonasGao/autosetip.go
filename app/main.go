@@ -16,10 +16,8 @@ func getConfigPath() string {
 
 func readConfig() (Config, error) {
 	var config Config
-	defaultApi := []string{"https://ips.im/api", "https://api.ipify.org"}
 	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
-		config.IpApiURL = defaultApi
-		return config, nil
+		return config, err
 	}
 	yamlData, err := os.ReadFile(getConfigPath())
 	if err != nil {
@@ -28,16 +26,6 @@ func readConfig() (Config, error) {
 	err = yaml.Unmarshal(yamlData, &config)
 	if err != nil {
 		return config, err
-	}
-	if len(config.IpApiURL) == 0 {
-		config.IpApiURL = defaultApi
-	}
-	for _, target := range config.Aliyun {
-		for _, ecs := range target.Ecs {
-			if ecs.Endpoint == "" {
-				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
-			}
-		}
 	}
 	return config, nil
 }
