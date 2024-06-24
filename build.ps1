@@ -1,5 +1,6 @@
 $pass = $args[0]
 $file = $args[1]
+$name = $args[2]
 Write-Output "Using" $file
 $file = (Get-Item $file).FullName
 Push-Location .\encrypt
@@ -13,4 +14,5 @@ go build
 Compress-Archive one.exe one.zip
 Remove-Item static\config.yaml.enc
 Remove-Item one.exe
+Move-Item one.zip ..\$name.zip
 Pop-Location
