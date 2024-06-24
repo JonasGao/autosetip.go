@@ -9,6 +9,7 @@ import (
 	"github.com/alibabacloud-go/tea/tea"
 	"io"
 	"net/http"
+	"regexp"
 )
 
 type Loggable interface {
@@ -32,15 +33,15 @@ type MongoTarget struct {
 }
 
 type AliyunTarget struct {
-	Name  string        `yaml:"name"`
-	Ecs   []EcsTarget   `yaml:"ecs"`
-	Mongo []MongoTarget `yaml:"mongo"`
+	Name  string         `yaml:"name"`
+	Ecs   []*EcsTarget   `yaml:"ecs"`
+	Mongo []*MongoTarget `yaml:"mongo"`
 }
 
 type Config struct {
-	IpApiURL []string       `yaml:"ip_api_url,omitempty"`
-	Key      string         `yaml:"key,omitempty"`
-	Aliyun   []AliyunTarget `yaml:"aliyun"`
+	IpApiURL []string        `yaml:"ip_api_url,omitempty"`
+	Key      string          `yaml:"key,omitempty"`
+	Aliyun   []*AliyunTarget `yaml:"aliyun"`
 }
 
 type AliyunEcsClient struct {
@@ -273,11 +274,11 @@ func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
 	return client.modifyIp(id, ip)
 }
 
-func fetchIp(ipApi string) (string, error) {
+func fetchIp(ipApi string) (string, int, error) {
 	var ip string
 	resp, err := http.Get(ipApi)
 	if err != nil {
-		return ip, err
+		return ip, 0, err
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -287,9 +288,9 @@ func fetchIp(ipApi string) (string, error) {
 	}(resp.Body)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return ip, err
+		return ip, 0, err
 	}
-	return string(body), nil
+	return string(body), resp.StatusCode, nil
 }
 
 func Autosetip(config Config) {
@@ -308,10 +309,10 @@ func Autosetip(config Config) {
 	}
 	fmt.Printf("Current ip: %s\n", ip)
 	for _, target := range config.Aliyun {
-		if !setupEcsSecurity(target, ip) {
+		if !setupEcsSecurity(*target, ip) {
 			return
 		}
-		if !setupMongoSecurity(target, ip) {
+		if !setupMongoSecurity(*target, ip) {
 			return
 		}
 	}
@@ -320,7 +321,7 @@ func Autosetip(config Config) {
 
 func setupMongoSecurity(aliyun AliyunTarget, ip string) bool {
 	for _, target := range aliyun.Mongo {
-		client, err := createMongoClient(aliyun, target)
+		client, err := createMongoClient(aliyun, *target)
 		if err != nil {
 			logErr("Create client error", client, err)
 			return false
@@ -354,7 +355,7 @@ func createMongoClient(aliyun AliyunTarget, target MongoTarget) (client AliyunMo
 
 func setupEcsSecurity(aliyun AliyunTarget, ip string) bool {
 	for _, target := range aliyun.Ecs {
-		client, err := createEcsClient(aliyun, target)
+		client, err := createEcsClient(aliyun, *target)
 		if err != nil {
 			logErr("Create client error", client, err)
 			return false
@@ -368,14 +369,31 @@ func setupEcsSecurity(aliyun AliyunTarget, ip string) bool {
 	return true
 }
 
+func matchIp(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	match, err := regexp.MatchString(`^(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4})`, ip)
+	if err != nil {
+		fmt.Printf("Match ip error: %v\n", err)
+		return false
+	}
+	return match
+}
+
 func tryFetchIp(config Config) (string, bool) {
 	var ip string
 	var err error
+	var sc int
 	for _, ipApi := range config.IpApiURL {
 		fmt.Printf("Fetching ip using: %s\n", ipApi)
-		ip, err = fetchIp(ipApi)
+		ip, sc, err = fetchIp(ipApi)
 		if err != nil {
 			fmt.Printf("Fetch ip error: %v\n", err)
+		}
+		fmt.Printf("Result ==> %d: %s\n", sc, ip)
+		if matchIp(ip) {
+			break
 		}
 	}
 	if ip == "" {
@@ -385,7 +403,7 @@ func tryFetchIp(config Config) (string, bool) {
 	return ip, false
 }
 
-func isEmpty(aliyun []AliyunTarget) bool {
+func isEmpty(aliyun []*AliyunTarget) bool {
 	if len(aliyun) == 0 {
 		return true
 	}
