@@ -115,7 +115,7 @@ func (client AliyunMongoClient) modifyIp(ip string) error {
 	return err
 }
 
-func (config Config) init() error {
+func (config *Config) init() error {
 	if len(config.IpApiURL) == 0 {
 		config.IpApiURL = []string{"https://ips.im/api", "https://api.ipify.org"}
 	}

@@ -8,18 +8,19 @@ import (
 )
 
 func getConfigPath() string {
-	if len(os.Args) == 0 {
+	if len(os.Args) < 2 {
 		return "config.yaml"
 	}
-	return os.Args[0]
+	return os.Args[1]
 }
 
 func readConfig() (Config, error) {
 	var config Config
-	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
+	path := getConfigPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return config, err
 	}
-	yamlData, err := os.ReadFile(getConfigPath())
+	yamlData, err := os.ReadFile(path)
 	if err != nil {
 		return config, err
 	}
