@@ -125,7 +125,7 @@ func (config *Config) init() error {
 	for _, target := range config.Aliyun {
 		for _, ecs := range target.Ecs {
 			if ecs.Endpoint == "" {
-				ecs.Endpoint = "ecs" + ecs.Region + ".aliyuncs.com"
+				ecs.Endpoint = "ecs." + ecs.Region + ".aliyuncs.com"
 			}
 			if ecs.Key == "" {
 				if hasGlobalKey {
