@@ -1,6 +1,7 @@
 package autosetip
 
 import (
+	"errors"
 	"fmt"
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	dds20151201 "github.com/alibabacloud-go/dds-20151201/v8/client"
@@ -38,7 +39,7 @@ type AliyunTarget struct {
 
 type Config struct {
 	IpApiURL []string        `yaml:"ip_api_url,omitempty"`
-	Key      string          `yaml:"key"`
+	Key      string          `yaml:"key,omitempty"`
 	Aliyun   []*AliyunTarget `yaml:"aliyun"`
 }
 
@@ -85,6 +86,9 @@ func (client AliyunMongoClient) queryRuleId() (*string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if client.matchKey == "" {
+		return nil, errors.New("mongo setup security require match key")
+	}
 	for _, group := range res.Body.SecurityIpGroups.SecurityIpGroup {
 		if tea.StringValue(group.SecurityIpGroupName) == client.matchKey {
 			return group.SecurityIpList, nil
@@ -94,6 +98,9 @@ func (client AliyunMongoClient) queryRuleId() (*string, error) {
 }
 
 func (client AliyunMongoClient) modifyIp(ip string) error {
+	if client.matchKey == "" {
+		return errors.New("mongo setup security require match key")
+	}
 	modifySecurityIpsRequest := &dds20151201.ModifySecurityIpsRequest{
 		DBInstanceId:        tea.String(client.mongo.InstanceId),
 		SecurityIps:         tea.String(ip),
@@ -117,6 +124,9 @@ func (client AliyunMongoClient) modifyIp(ip string) error {
 }
 
 func (config *Config) init() error {
+	if config.Key == "" {
+		return errors.New("empty Key (match key)")
+	}
 	if len(config.IpApiURL) == 0 {
 		config.IpApiURL = []string{"https://ips.im/api", "https://api.ipify.org"}
 	}
@@ -229,6 +239,9 @@ func (client AliyunEcsClient) queryRuleId(desc string) (*string, error) {
 }
 
 func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
+	if client.matchKey == "" {
+		return errors.New("ECS setup security require match key")
+	}
 	desc := fmt.Sprintf(descTemplate, client.matchKey)
 	log(client, fmt.Sprintf("Query rule: %s", desc))
 	id, err := client.queryRuleId(desc)
