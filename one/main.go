@@ -48,8 +48,16 @@ func getPass() string {
 	return os.Args[1]
 }
 
+func getMatchKey() string {
+	if len(os.Args) < 3 {
+		return ""
+	}
+	return os.Args[2]
+}
+
 func main() {
 	pass := getPass()
+	matchKey := getMatchKey()
 	decrypt, err := aesDecrypt([]byte(pass))
 	if err != nil {
 		panic(err)
@@ -58,6 +66,10 @@ func main() {
 	if err != nil {
 		fmt.Printf("Read config error: %v\n", err)
 		return
+	}
+	if matchKey != "" {
+		config.Key = matchKey
+		fmt.Printf("Override match key: %s\n", matchKey)
 	}
 	Autosetip(config)
 }
