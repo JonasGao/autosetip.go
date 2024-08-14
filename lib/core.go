@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strings"
 )
 
 type Loggable interface {
@@ -27,16 +26,19 @@ type EcsTarget struct {
 	Port            []string `yaml:"port,omitempty"`
 }
 
-func (t EcsTarget) portRange() *string {
-	if len(t.Port) == 0 {
-		return tea.String("22/22")
-	} else {
-		a := make([]string, 0, len(t.Port))
-		for _, k := range t.Port {
-			a = append(a, k+"/"+k)
-		}
-		return tea.String(strings.Join(a, ","))
+func (t EcsTarget) RequestPermission(port string, ip string, desc string) *ecs20140526.AuthorizeSecurityGroupRequestPermissions {
+	return &ecs20140526.AuthorizeSecurityGroupRequestPermissions{
+		Policy:       tea.String("accept"),
+		Priority:     tea.String("100"),
+		IpProtocol:   tea.String("tcp"),
+		SourceCidrIp: tea.String(ip),
+		PortRange:    tea.String(fmt.Sprintf("%[1]s/%[1]s", port)),
+		Description:  tea.String(desc),
 	}
+}
+
+func (t EcsTarget) RequestPermissions(ip string, port string, desc string) []*ecs20140526.AuthorizeSecurityGroupRequestPermissions {
+	return []*ecs20140526.AuthorizeSecurityGroupRequestPermissions{t.RequestPermission(port, ip, desc)}
 }
 
 type MongoTarget struct {
@@ -149,12 +151,13 @@ func (config *Config) init() error {
 			if ecs.Endpoint == "" {
 				ecs.Endpoint = "ecs." + ecs.Region + ".aliyuncs.com"
 			}
+			if len(ecs.Port) == 0 {
+				ecs.Port = []string{"22"}
+			}
 		}
 	}
 	return nil
 }
-
-const descTemplate = "Auto create by autosetip.go. For %s."
 
 func log(target Loggable, msg string) {
 	fmt.Printf("[%s] %s\n", target.lk(), msg)
@@ -164,20 +167,12 @@ func logErr(msg string, target Loggable, err error) {
 	fmt.Printf("[%s] %s: %v\n", target.lk(), msg, err)
 }
 
-func (client AliyunEcsClient) addIp(ip string, desc string) error {
+func (client AliyunEcsClient) addIp(ip string, port string, desc string) error {
 	var err error
-	permissions := &ecs20140526.AuthorizeSecurityGroupRequestPermissions{
-		Policy:       tea.String("accept"),
-		Priority:     tea.String("100"),
-		IpProtocol:   tea.String("tcp"),
-		SourceCidrIp: tea.String(ip),
-		PortRange:    client.ecs.portRange(),
-		Description:  tea.String(desc),
-	}
 	req := &ecs20140526.AuthorizeSecurityGroupRequest{
 		RegionId:        tea.String(client.ecs.Region),
 		SecurityGroupId: tea.String(client.ecs.SecurityGroupId),
-		Permissions:     []*ecs20140526.AuthorizeSecurityGroupRequestPermissions{permissions},
+		Permissions:     client.ecs.RequestPermissions(ip, port, desc),
 	}
 	err = func() (_e error) {
 		defer func() {
@@ -195,7 +190,7 @@ func (client AliyunEcsClient) addIp(ip string, desc string) error {
 	return err
 }
 
-func (client AliyunEcsClient) modifyIp(id *string, ip string) error {
+func (client AliyunEcsClient) modifyIp(id *string, port string, ip string) error {
 	var err error
 	req := &ecs20140526.ModifySecurityGroupRuleRequest{
 		RegionId:            tea.String(client.ecs.Region),
@@ -205,7 +200,7 @@ func (client AliyunEcsClient) modifyIp(id *string, ip string) error {
 		Priority:            tea.String("100"),
 		IpProtocol:          tea.String("tcp"),
 		SourceCidrIp:        tea.String(ip),
-		PortRange:           tea.String("22/22"),
+		PortRange:           tea.String(fmt.Sprintf("%[1]s/%[1]s", port)),
 	}
 	err = func() (_e error) {
 		defer func() {
@@ -256,18 +251,28 @@ func setEcsSecurityIp(client AliyunEcsClient, ip string) error {
 	if client.matchKey == "" {
 		return errors.New("ECS setup security require match key")
 	}
-	desc := fmt.Sprintf(descTemplate, client.matchKey)
-	log(client, fmt.Sprintf("Query rule: %s", desc))
-	id, err := client.queryRuleId(desc)
-	if err != nil {
-		return err
+	for _, p := range client.ecs.Port {
+		desc := fmt.Sprintf("%s->%s", client.matchKey, p)
+		log(client, fmt.Sprintf("Query rule: %s", desc))
+		id, err := client.queryRuleId(desc)
+		if err != nil {
+			return err
+		}
+		if id == nil {
+			log(client, "Not found rule id, will add new ip rule.")
+			err = client.addIp(ip, p, desc)
+			if err != nil {
+				return err
+			}
+		} else {
+			log(client, "Found rule, modify ip.")
+			err = client.modifyIp(id, p, ip)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	if id == nil {
-		log(client, "Not found rule id, will add new ip rule.")
-		return client.addIp(ip, desc)
-	}
-	log(client, "Found rule, modify ip.")
-	return client.modifyIp(id, ip)
+	return nil
 }
 
 func fetchIp(ipApi string) (string, int, error) {
