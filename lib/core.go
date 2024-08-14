@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 )
 
 type Loggable interface {
@@ -18,11 +19,24 @@ type Loggable interface {
 }
 
 type EcsTarget struct {
-	Region          string `yaml:"region"`
-	AccessKey       string `yaml:"access_key"`
-	SecretKey       string `yaml:"secret_key"`
-	Endpoint        string `yaml:"endpoint,omitempty"`
-	SecurityGroupId string `yaml:"security_group_id"`
+	Region          string   `yaml:"region"`
+	AccessKey       string   `yaml:"access_key"`
+	SecretKey       string   `yaml:"secret_key"`
+	Endpoint        string   `yaml:"endpoint,omitempty"`
+	SecurityGroupId string   `yaml:"security_group_id"`
+	Port            []string `yaml:"port,omitempty"`
+}
+
+func (t EcsTarget) portRange() *string {
+	if len(t.Port) == 0 {
+		return tea.String("22/22")
+	} else {
+		a := make([]string, 0, len(t.Port))
+		for _, k := range t.Port {
+			a = append(a, k+"/"+k)
+		}
+		return tea.String(strings.Join(a, ","))
+	}
 }
 
 type MongoTarget struct {
@@ -157,7 +171,7 @@ func (client AliyunEcsClient) addIp(ip string, desc string) error {
 		Priority:     tea.String("100"),
 		IpProtocol:   tea.String("tcp"),
 		SourceCidrIp: tea.String(ip),
-		PortRange:    tea.String("22/22"),
+		PortRange:    client.ecs.portRange(),
 		Description:  tea.String(desc),
 	}
 	req := &ecs20140526.AuthorizeSecurityGroupRequest{
