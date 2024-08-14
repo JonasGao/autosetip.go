@@ -19,7 +19,8 @@ Write-Output "Compressing"
 Compress-Archive one.exe one.zip
 Write-Output "Clear"
 Remove-Item static\config.yaml.enc
-Remove-Item one.exe
-Move-Item one.zip ..\$name.zip
+New-Item -ItemType Directory -Force -Path ..\$name
+Move-Item one.exe ..\$name\one.exe
+Move-Item one.zip ..\$name\one.zip
 Pop-Location
 Write-Output "Finish"
